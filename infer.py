@@ -5,7 +5,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, List, Optional
+from typing import Any, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -22,7 +22,7 @@ from common import Annotation, Detection, InferredImage
 
 
 class AnnotatedDataset(Dataset):
-    def __init__(self, paths: List[Path], annotations: Optional[List[Any]] = None):
+    def __init__(self, paths: List[Tuple[Path, Path]], annotations: Optional[List[Any]] = None):
         if annotations is None:
             annotations = [None] * len(paths)
         assert len(paths) == len(annotations)
@@ -35,11 +35,11 @@ class AnnotatedDataset(Dataset):
         # print("getting", idx)
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        img_path, annotations = self.tasks[idx]
+        (img_path, vis_path), annotations = self.tasks[idx]
         img = Image.open(str(img_path))
         img.load()
         img = img.convert("RGB")
-        return dict(pil_img=img, img_path=img_path, annotations=annotations)
+        return dict(pil_img=img, img_path=img_path, vis_path=vis_path, annotations=annotations)
 
 
 class ThreadedVisualizer:
@@ -64,44 +64,50 @@ class ThreadedVisualizer:
         self._t.daemon = True
         self._t.start()
 
-    def visualize(self, image_as_pil, img_path, detections, annotations):
-        self._buffer.put((image_as_pil, img_path, detections, annotations))
+    def visualize(self, image_as_pil, img_path, out_path, detections, annotations):
+        self._buffer.put((image_as_pil, img_path, out_path, detections, annotations))
 
     def draw_crops(self, crops, sceneh, add_score=False):
-        widest_first = sorted(crops, key=lambda x: -x[0].shape[1])
-        if len(widest_first) > self.max_detections:
-            widest_first = widest_first[: self.max_detections]
-        column = None
-        column_h = sceneh
-        column_n = 0
-        column_y0 = 0
-        columns = []
-        for crop, score in widest_first:
+        # Sort most important first and get maxn:
+        crops = sorted(crops, key=lambda x: -x[1])
+        if len(crops) > self.max_detections:
+            crops = crops[: self.max_detections]
+
+        # Split into bunchs of crops such that each bunch has a height <= sceneh:
+        bunches = []
+        current_bunch = []
+        for crop, score in crops:
             h, w = crop.shape[:2]
-            if column_y0 + h > column_h:
-                if column_n == 0:
-                    logger.info("This is a really tall detection - ignoring")
-                    continue
+            if h > sceneh:
+                logger.info("This is a really tall detection - ignoring")
+                continue
+            else:
+                if sum(i[0].shape[0] for i in current_bunch) + h > sceneh:
+                    # New bunch
+                    bunches.append(current_bunch)
+                    current_bunch = []
                 else:
-                    # OK, it's gone over - new column
-                    columns.append(column)
-                    column_n = 0
-                    column_y0 = 0
-                    column = None
-            if column is None:
-                column = np.zeros((column_h, w, 3), np.uint8)
-            # Ok, copy it over
-            column_y1 = min(column_h, column_y0 + h)
-            copy_h = column_y1 - column_y0
-            column[column_y0:column_y1, :w, :] = crop[:copy_h, :w, :]
-            # Make top few pixels the score
-            if add_score:
-                column_w = column.shape[1]
-                column[column_y0 : min(column_h, column_y0 + 5), : int(column_w * score), 1] = 255
-            # Update counters:
-            column_n += 1
-            column_y0 = column_y1
-        if column_n > 0:
+                    current_bunch.append((crop, score))
+        if current_bunch:
+            bunches.append(current_bunch)
+        del current_bunch
+
+        # Now draw each:
+        columns = []
+        for bunch in bunches:
+            column_w = max(i[0].shape[1] for i in bunch)
+            column = np.zeros((sceneh, column_w, 3), np.uint8)
+            y0 = 0
+            for crop, score in bunch:
+                h, w = crop.shape[:2]
+                # Ok, copy it over
+                column_y1 = y0 + h
+                assert column_y1 <= sceneh
+                column[y0:column_y1, :w, :] = crop
+                if add_score:
+                    # Make top few pixels the score
+                    column[y0 : min(sceneh, y0 + 5), : int(column_w * score), 1] = 255
+                y0 = column_y1
             columns.append(column)
         if not columns:
             return None
@@ -117,7 +123,7 @@ class ThreadedVisualizer:
             try:
                 annotations: List[Annotation]
                 detections: List[Detection]
-                image_as_pil, img_path, detections, annotations = self._buffer.get()
+                image_as_pil, img_path, out_path, detections, annotations = self._buffer.get()
                 self._processing = True
                 # resize:
                 bgr = cv2.cvtColor(np.array(image_as_pil), cv2.COLOR_RGB2BGR)
@@ -209,9 +215,8 @@ class ThreadedVisualizer:
                 cv2.putText(header, msg, (5, h + 5), font, 0.5, (255, 255, 255), 1)
                 out = np.vstack([header, out])
 
-                odir = Path(self.visual_with_gt_dir)
-                odir.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(odir / f"{img_path.stem}.jpg"), out)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(out_path), out)
             except:  # NOQA
                 logger.exception("Failed!")
 
@@ -222,7 +227,7 @@ class ThreadedVisualizer:
 def predict(
     detection_model,
     title_prefix,
-    img_paths: List[Path],
+    img_paths: List[Tuple[Path, Path]],
     odir,
     annotations: Optional[List[Any]] = None,
     model_confidence_threshold: float = 0.25,
@@ -291,7 +296,7 @@ def predict(
             detections.append(Detection(x0=x0, y0=y0, x1=x1, y1=y1, score=o.score.value, label=o.category.name))
 
         if not novisual:
-            vis.visualize(img, task["img_path"], detections, annotations=task["annotations"])
+            vis.visualize(img, task["img_path"], task["vis_path"], detections, annotations=task["annotations"])
 
         yield InferredImage(img_path=task["img_path"], detections=detections, annotations=task["annotations"])
 

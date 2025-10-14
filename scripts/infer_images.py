@@ -67,22 +67,29 @@ def main(args):
             )
     img_paths = []
     annotations = []
-    for img_path in sorted(Path(args.imgdir).iterdir()):
+    imgdir = Path(args.imgdir)
+    inference_dir = outdir / "inferences"
+    inference_dir.mkdir(exist_ok=True)
+    for img_path in sorted(imgdir.rglob("*")):
         if img_path.suffix.lower() in [".jpg", ".jpeg", ".png", "*.JPG", "*.JPEG", "*.PNG"]:
             if (outdir / "visuals_with_gt" / f"{img_path.stem}.jpg").exists():
                 logger.info(f"Skipping {img_path} as already processed")
                 continue
-            img_paths.append(img_path)
+            relpath = Path(img_path).parent.relative_to(imgdir)
+            inference_path = inference_dir / relpath / f"{img_path.stem}.json"
+            vis_path = outdir / "visuals_with_gt" / relpath / f"{img_path.stem}.jpg"
+            if inference_path.exists() or vis_path.exists():
+                logger.info(f"Skipping {img_path} as already processed")
+                continue
+            img_paths.append((img_path, vis_path))
             annotations.append(annotations_by_img.get(img_path.name))
 
     logger.info(f"Inferring {len(img_paths)}")
-    title_prefix = f"yolov9 ({model_path.name}) imgs @ {args.imgdir}"
-    inference_dir = outdir / "inferences"
-    inference_dir.mkdir(exist_ok=True)
+    title_prefix = f"yolov9 ({model_path.name}) imgs @ {imgdir}"
     for inference in predict(
-        model,
-        title_prefix,
-        img_paths,
+        detection_model=model,
+        title_prefix=title_prefix,
+        img_paths=img_paths,
         annotations=annotations,
         odir=outdir,
         model_confidence_threshold=args.model_confidence_threshold,
@@ -95,7 +102,9 @@ def main(args):
         novisual=args.novisual,
         verbose=args.verbose,
     ):
-        opath = inference_dir / f"{inference.img_path.stem}.json"
+        odir = inference_dir / Path(inference.img_path.parent).relative_to(imgdir)
+        odir.mkdir(parents=True, exist_ok=True)
+        opath = odir / f"{inference.img_path.stem}.json"
         with open(opath, "w") as f:
             json.dump([asdict(d) for d in inference.detections], f, indent=2)
 

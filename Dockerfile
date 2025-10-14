@@ -28,12 +28,15 @@ RUN apt-get update -y && apt-get upgrade -y
 # * Anything else you want to do like clean up goes here *
 # ********************************************************
 
+RUN conda install -y conda
+RUN conda install -y seaborn shapely pybboxes
+
 
 USER $USERNAME
 
 # Stuff for yolov9
 RUN pip install --upgrade pip
-RUN pip install seaborn shapely pybboxes
+# RUN pip install seaborn shapely pybboxes
 
 # Fix opencv import
 RUN pip uninstall opencv-python && pip install opencv-python-headless

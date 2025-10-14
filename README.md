@@ -1,25 +1,225 @@
 # Maui63 computer vision
 
-All the things related to processing imagery from our drone/plane surveys. We're specifically focusing on our new [multi-camera solution from a Cessna 172](doc/multi-camera-setup.md) and looking for [Maui's dolphins](https://en.wikipedia.org/wiki/M%C4%81ui_dolphin) with computer vision i.e. like this:
+## TODO
 
-![alt text](doc/imgs/maui-sightings.jpg)
+- remove orientation flag for any data we keep (e.g. for ground truth) - some tools (e.g. annotation ones) load the image rotated, so we don't want to worry if the annotations are rotated too.
+- copy exif over to detection visuals
+- have script to profile ISO
+- find the minimum confidence thta got all our dolphins. use that as our threshold for filtering in future.
 
-Specifically, this repo includes:
+## Survey findings
 
-- Models for detecting small (50 pixel) dolphins from 61MP images.
-  - Using SAHI to tile to improve performance.
-  - Basic workflows to run inference on surveys and review.
-  - Various notebooks floating around for creating training datasets etc.
-- Various notebooks related to post-processing our raw data and tidying it up, and an app to review our multi-camera solution.
+- TODO: summarise findings Greg. F5.6 is good for removing vignette around the edges. 1/2500 and above should be fine (and are) to get crips images.
+- When it's overcast and cloudy, ISO is way too high (at F5.6 and 1/3200 or even 1/2500 and exposure compensation -1). I think we need to move to F4 or something.
+  - Not sure how this impacts spotting Maui - haven't seen any. Which is probbly 'cos they're not there (it's up north in all these dark/grainy images). But could be that they are and the model misses them. Should probably fly over where we know mauis are, on a dark grainy day, and see what we see.
 
+does rgb / bgr matter
 
-## Future ideas
+## Lab notes
 
-- Can afford to train a new model now we've got more data. That is:
-  - New model architectures e.g. yolov12 is a thing now. If we can go faster, and possibly real-time, without sacrificing accuracy, great.
-  - Play with different tiling size - 640x640 was just a first guess.
-  - SAHI is yuck, just roll our own, it's pretty basic, and we can optimise it a bit.
-- Maybe try some ensembles? Slightly different data prep etc.
-- Do some investigation on detections so far:
-  - Do they tend to be at the front of the image (indicating they dive)?
-  - Is there a higher density in the middle of the image i.e. we're missing more at the far left/right?
+- 2025/08 - ran all SD cards from winter survey as below:
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml /media/ko/6CE7-5780/DCIM/  20240822-r09 --device='cuda' --model_confidence_threshold=0.01 --batch_size=32
+  ```
+
+- 2025/04/24: running full inference
+
+  ```
+  nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /mnt/mauidata:/workspaces/cv/data -e PYTHONPATH=".:lib:lib/sahi" -w /workspaces/cv --user=1001 cv python scripts/infer_surveys.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml data/surveys/action-aviation-multicamera/20250331_west_coast_4camera_test/ data/inferences/ 640 640 --device='cuda' --model_confidence_threshold=0.01
+
+  nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /mnt/mauidata:/workspaces/cv/data -e PYTHONPATH=".:lib:lib/sahi" -w /workspaces/cv --user=1001 cv python scripts/infer_surveys.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml data/surveys/action-aviation-multicamera/20250405_west_coast_4camera data/inferences/ 640 640 --device='cuda' --model_confidence_threshold=0.01 &
+  ```
+
+- Sometime: fixing up the second flight. See notebook `look_for_multicamera_frame_skips.ipynb`
+
+- 2025/04/08: second run-through:
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml downloads/L09/DCIM/10250405/ 20240405-l09 --device='cuda' --model_confidence_threshold=0.01 --batch_size=32 &&  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml downloads/L28/DCIM/10250405/ 20240405-l28 --device='cuda' --model_confidence_threshold=0.01 --batch_size=32
+
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml downloads/L28/DCIM/10150405/ 20240405-l28 --device='cuda' --model_confidence_threshold=0.01 --batch_size=32
+
+  ```
+
+- 2025/04/02: infer on latest 4cam survey
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml data/surveys/action-aviation/20250331_west_coast_4camera_test/r09/10050331/ r09-10050331 --device='cuda' --model_confidence_threshold=0.1
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml data/surveys/action-aviation/20250331_west_coast_4camera_test/r09/10150331/ r09-10150331 --device='cuda' --model_confidence_threshold=0.1
+  ```
+
+- 2024/09/19: backup: `tar -czvf .tmp/$(date +%Y%m%d)-maui-computer-vision.tar.gz --exclude=.ignore --exclude=.tmp --exclude=data/surveys --exclude=data/inferences --exclude='*.old*' --exclude='*.pyc' .`
+- 2024/09/13: Smaller has similar mAP of 0.93, as expected. Test the model:
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240912_052208-yolov9-s-20240815-maui lib/yolov9/models/detect/yolov9-s.maui.yaml data/ml/annotated/202409-dolphins/all/ 202409-dolphins-all --coco=data/ml/annotated/202409-dolphins/all.json --device='cuda' --model_confidence_threshold=0.1
+  ```
+
+  OK, it's looking pretty good. Misses a few the big model gets, and gets a few the big model misses. Looking into inference time though, and it didn't help much. Need to dig into SAHI as that seems to be the cause - the model runs in <0.5s but all the other stuff (??) takes another 3-4s.
+
+  Export to TensorRT 'cos why not.
+
+  ```
+  python export.py --data=/workspaces/cv/data/ml/training-datasets/20240815-maui/dataset.yml --weights=/workspaces/cv/data/ml/trains/20240912_052208-yolov9-s-20240815-maui/weights/best.pt --img-size 640 640 --device=0 --verbose --batch-size=32 --include=engine
+  ```
+
+  Then rename the best.engine to best.bs32.engine so we can keep track of different exported models. Then run like so:
+
+    ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240912_052208-yolov9-s-20240815-maui/weights/best.bs32 lib/yolov9/models/detect/yolov9-s.maui.yaml data/ml/annotated/202409-dolphins/all/ 202409-dolphins-all --coco=data/ml/annotated/202409-dolphins/all.json --device='cuda' --model_confidence_threshold=0.1
+  ```
+
+  Unfortunately it doesn't work = ( Like, it runs, but the model fails to detect anything. Not sure why. Park it for now.
+
+  Speed up a lot by getting rid of image copying in sahi PredictionResult. Bunch of performance testing. Anyway, now 1-1.5s per image instead of 4-5s.
+
+- 2024/09/12: finished reviewing and comparing. Filtered to the 13 new images with dolphins, labelled. Train a smaller one just to see how it does. Had to update yolov9 lib.
+
+  ```
+  python train_dual.py --workers 16 --batch 16 --device 0 --data /workspaces/cv/.tmp/20240815-maui/dataset.yml --img 640 --cfg models/detect/yolov9-s.maui.yaml --weights '' --project /workspaces/cv/data/ml/trains/ --name $(date +%Y%m%d_%H%M%S)-yolov9-s-20240815-maui --hyp hyps/hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+  ```
+
+- 2024/09/11: inference finished, started filtering
+- 2024/08/29: inference died this morning, restarting with command below. Got through to start of 2024, with 2k detections so far (confidence > 0.1). So a few more false positives ... hopefully more dolphins!
+- 2024/08/22: model seemed to train fine. Testings:
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.yaml data/ml/annotated/202408-dolphins/test/ 202408-dolphins-test --coco=data/ml/annotated/202408-dolphins/test.json --device='cuda' --model_confidence_threshold=0.1
+  ```
+
+  Model looking pretty good on the test set. Let's kick off another run through:
+
+  ```
+  nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /mnt/mauidata:/workspaces/cv/data -e PYTHONPATH=".:lib:lib/sahi" -w /workspaces/cv --user=1001 cv python scripts/infer_surveys.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.yaml data/surveys/ data/inferences 640 640  --model_confidence_threshold=0.1 &
+  ```
+
+  Had to do this first though since the new VM has user=1001 and it made permissions annoying.
+
+  ```
+  docker build . --build-arg USER=1001 --tag=cv
+  ```
+
+- 2024/08/15 - creating a new dataset. Made the code more efficient and didn't use SAHI for the creation. Adding in all the mauis/hectors we've seen from surveys too, and playing with size. Then I'll kick off a train. Training:
+
+  ```
+  python train_dual.py --workers 16 --batch 16 --device 0 --data /workspaces/cv/.tmp/20240815-maui/dataset.yml --img 640 --cfg models/detect/yolov9-c.yaml --weights '' --project /workspaces/cv/data/ml/trains/ --name $(date +%Y%m%d_%H%M%S)-yolov9-c-20240815-maui --hyp hyps/hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+  ```
+
+- 2024/08/14 - bunch of messing around with the VMs so the Uni don't break them accidentally again. Seems good. Also thumbnailed all the images and removed 350gb of images with no ocean (i.e. drone taking off or landing).
+- 2024/08/01 - grabbed all of the dolphins we know about. This was mostly exporting the annotations from cloudy bay to use in LabelStudio, then annotating, then merging all. Copying data to the new volume.
+
+## Scratchpad
+
+```
+# To start label-studio
+docker run -it -p 8080:8080 -v $(pwd)/mydata:/label-studio/data -e LABEL_STUDIO_USERNAME=kane@bykotech.co.nz -e LABEL_STUDIO_PASSWORD=password123 -e LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true -e LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data heartexlabs/label-studio:latest
+```
+
+```
+python scripts/slice_dataset.py data/training_datasets/20240420_maui_hectors_false_positives
+
+cd lib/yolov9
+python train_dual.py --workers 8 --batch 16 --device 0 --data /workspaces/cv/data/training_datasets/20240420_maui_hectors_false_positives/dataset.yml --img 640 --cfg models/detect/yolov9-c.yaml --weights '' --project /workspaces/cv/trains/ --name $(date +%Y%m%d_%H%M%S)-yolov9-c --hyp hyps/hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+
+python train_dual.py --workers 16 --batch 16 --device 0 --data /workspaces/cv/data/training_datasets/20240429_maui_hectors_false_positives/dataset.yml --img 640 --cfg models/detect/yolov9-c.yaml --weights '' --project /workspaces/cv/trains/ --name $(date +%Y%m%d_%H%M%S)-yolov9-c --hyp hyps/hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+
+PYTHONPATH=".:lib:lib/sahi" python scripts/infer_action_aviation.py trains/20240421-yolov9-c/ lib/yolov9/models/detect/yolov9-c.yaml data/surveys/20240403\ Dolphin\ Survey\ 1500ft/ 640 640
+PYTHONPATH=".:lib:lib/sahi" python scripts/infer_action_aviation.py trains/20240507_200349-yolov9-c-maui-only-ds2/ lib/yolov9/models/detect/yolov9-c.yaml data/surveys/manual_dolphins/imgs/ 640 640
+PYTHONPATH=".:lib:lib/sahi" python scripts/infer_surveys.py data/ml/trains/20240518_195508-yolov9-c-20240509-maui-false-positives/ lib/yolov9/models/detect/yolov9-c.yaml data/surveys/ data/inferences 640 640 --novisual --device='cuda'  --model_confidence_threshold=0.1
+
+nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /data:/workspaces/cv/data -e PYTHONPATH=".:lib:lib/sahi" -w /workspaces/cv cv python scripts/infer_surveys.py data/ml/trains/20240518_195508-yolov9-c-20240509-maui-false-positives/ lib/yolov9/models/detect/yolov9-c.yaml data/surveys/ data/inferences 640 640  --model_confidence_threshold=0.1
+```
+
+## Getting it running
+
+Open this in vscode and follow the prompt to open in dev container.
+
+## Introduction
+
+We're trying to detect maui's from aerial photos with the following constraints:
+
+- Large images - generally 60mp
+- Small dolphins - often 50px or so. They're also quite tricky and often submerged etc.
+- Aerial pictures from a drone or plane, looking straight down. These often include footage of the take-off/landing, and the surf, and then all the non-dolphin things in the sea (rubbish, dead fish, birds, long line torpedos, other dolphins, etc.).
+- Variable ground surface distance (GSD) - depends on the survey and camera used.
+- This does not need to run live on the drone - we can throw whatever we've got at it.
+- Very little (real-world) training data. Currently we've only got 7 images from a survey of a maui, and about 50 of hectors (which are effectively identical).
+
+With that in mind, this repo has focused on:
+
+- Using a big chonky yolov9 - we don't care about runtime.
+- Using SAHI to tile the images into smaller chunks, and inferring on them. Why? A lot of object detection models perform poorly when detecting small objects. You can fine tune them (as was done with the original yolov4) so that you can downscale the image and fire it through once, but this takes a bit of work, and limits you to the model, and presumably accuracy. Instead, let's use full resolution (just tiled). The dolphins are "large" in these images, so we can use any model we want.
+- A fair bit of work tidying/standardising the images. We could have a model that works at different altitudes etc. - but based on Tane's experience (and common sense) it's easier if we can normalise all the data to be as similar as possible first.
+
+## Code structure
+
+- Notebooks in ./notebooks are generally for data prep stuff.
+- ./lib/sahi - I used commit 0077a143abdabad2ac81eb375377c744662f7578 from <https://github.com/obss/sahi> and modified sahi/auto_model.py, sahi/models/rtdetr.py, and sahi/models/yolov9.py to add RT-DETR/yolov9 support, as per this repo. I just added it as files, and deleted .git as submodules are annoying.
+- ./lib/yolov9 - I used commit 5b1ea9a8b3f0ffe4fe0e203ec6232d788bb3fcff of <https://github.com/WongKinYiu/yolov9> and changed utils/general.py, and models/detect/yolov9-c.maui.yaml as per this repo. Again, deleted .git.
+
+## Running stuff
+
+### Image slicing
+
+You can do it like so
+
+```sh
+python3 scripts/slice_dataset.py <path-to-dataset>/meta.yaml
+```
+
+e.g.
+
+```
+python scripts/slice_dataset.py data/ml/training-datasets/20240815-maui/meta.yaml --num-workers=16
+```
+
+Check out an example meta.yaml for all the options. It'll a generate the images in coco/yolo formats in the dataset folder, and add review images.
+
+### Training YoloV9
+
+```
+# Run below (installing what you need as it complains)
+python train_dual.py --workers 8 --device 0 --batch 16 --data /coco/dataset.yolov9.yml --img 640 --cfg models/detect/yolov9-c.yaml --weights '' --name yolov9-c --hyp hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+
+# Test:
+PYTHONPATH=lib python test_model_yolov9.py lib/yolov9/runs/train/yolov9-c11/ lib/yolov9/models/detect/yolov9-c.yaml data/dolphins/dolphins.json data/dolphins/images 640 640
+```
+
+## Findings
+
+### ML
+
+- The hectors 2021 data seemed to make the data worse. I'm dubious about the annotations too. So ignore it.
+- I did a bunch on scaling the datasets to the same size. Interestingly, it seems important to keep full size images in so we can work more zoomed in. That is, keep the original mauis dataset all fullsize, even though these dolphins will be much larger than they should be on tiling. NB: this shouldn't be the case though, which makes me wonder if there's a bunch somewhere.
+- RT-DETR and YoloV9 performed similarly. Yolov9 was a bit faster, and more of a standard object detection model, so stuck with that.
+
+### Flights
+
+- The photo timestamps are weird for CW25. E.g. check out Flight 2 of 20230513 - I took DSC01106 to be there first, but the photo timestamps don't get sequential until around DSC1136.
+
+### Yolo v4 tiny (the old model)
+
+- OK, it looks like the lastest code I have is for scaling to 100m
+- I found wednesday_data_backup_20220219_object_detector.zip but I think it's for birds etc.
+- yolo is unpleasant to compile etc. I tried installing locally and docker, and various combinations. Headless and not wanting to mess with the server system made it a bit annoying.
+- yolo python gives worse results than the compiled script, so I've got to use that. Annoying.
+- The yolov4 tiny isn't great = (
+
+### RT-DETR
+
+- Need to manually set the LR or it eventually gets nans.
+- Get a good recall with threshold of 0.25 or so, and not too many false positives. IOU threshold of 0.1 gives very good recall.
+
+## Misc
+
+### Getting set up on nectar
+
+- ubuntu-drivers install​ didn't seem to work.
+- From the ppa graphics-drivers it does. Not sure if 550 is important or not.
+  - sudo apt-get install nvidia-driver-550-server​
+  - sudo apt-get install nvidia-container-toolkit​
+  - sudo systemctl restart docker​
+  - sudo docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+​- I've had to disable mig in the past - sudo nvidia-smi -pm 1 && sudo nvidia-smi -mig 0​
+- Reboots etc. in between.
