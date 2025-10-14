@@ -1,6 +1,12 @@
 
 ## Lab notes
 
+- 2025-10-15 - created 202508-dolphins dataset. Tidied up code and merged etc.
+- 2025/08 - ran all SD cards from winter survey as below:
+
+  ```
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml /media/ko/6CE7-5780/DCIM/  20240822-r09 --device='cuda' --model_confidence_threshold=0.01 --batch_size=32
+  ```
 - 2025/04/24: running full inference
   ```
   nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /mnt/mauidata:/workspaces/cv/data -e PYTHONPATH=".:lib:lib/sahi" -w /workspaces/cv --user=1001 cv python scripts/infer_surveys.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml data/surveys/action-aviation-multicamera/20250331_west_coast_4camera_test/ data/inferences/ 640 640 --device='cuda' --model_confidence_threshold=0.01
