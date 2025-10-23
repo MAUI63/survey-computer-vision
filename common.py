@@ -21,6 +21,28 @@ class Annotation:
             "label": self.label,
         }
 
+    def area(self) -> float:
+        return max(0.0, self.x1 - self.x0) * max(0.0, self.y1 - self.y0)
+
+    def iou(self, other: "Annotation") -> float:
+        # Compute intersection over union with another annotation
+        ix0 = max(self.x0, other.x0)
+        ix1 = min(self.x1, other.x1)
+        if ix1 <= ix0:
+            return 0.0
+        iy0 = max(self.y0, other.y0)
+        iy1 = min(self.y1, other.y1)
+        if iy1 <= iy0:
+            return 0.0
+        intersection_area = (ix1 - ix0) * (iy1 - iy0)
+        if intersection_area == 0:
+            return 0.0
+        union = self.area() + other.area() - intersection_area
+        if union == 0:
+            return 0.0
+
+        return intersection_area / union
+
 
 @dataclass
 class Detection(Annotation):
