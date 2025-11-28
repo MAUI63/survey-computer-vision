@@ -1,4 +1,5 @@
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,13 +29,12 @@ def get_exif_lazy(imgpath, chunksize=16000) -> exif.Image:
     return exifimg
 
 
-def get_a7rv_image_timestamp(imgpath, chunksize=16000) -> datetime:
+def get_a7rv_image_timestamp(exifimg: exif.Image) -> datetime:
     """
     Get's the time from the EXIF. At this stage, we just parse the raw string without the timezone info, because we
     don't know the offset yet - offset_time_original is empty. (Though that may change depending on firmware and
     camera settings?)
     """
-    exifimg = get_exif_lazy(imgpath, chunksize=chunksize)
     t = datetime.strptime(exifimg["datetime_original"], "%Y:%m:%d %H:%M:%S")
     milliseconds = exifimg["subsec_time_original"]
     return t + timedelta(milliseconds=int(milliseconds))
@@ -77,3 +77,32 @@ def remove_exif_orientation_if_needed(src, target, validate=True):
 
         # Write to target:
         tmp_path.rename(target)
+
+
+@dataclass
+class SimpleImageExifData:
+    timestamp: datetime
+    orientation: int
+    raw_exif: exif.Image
+    iso: int  # Use SonyISO
+    aperture: float
+    exposure_time: str  # NB: use the one in Sony MakerNote (more accurate), but this is fine for now
+
+    def list_all(self):
+        for k in self.raw_exif.list_all():
+            print(f"{k}: {self.raw_exif[k]}")
+
+    def get_thumbnail(self) -> bytes:
+        return self.raw_exif.get_thumbnail()
+
+
+def get_simple_exif_data(imgpath: Path, chunksize=16000) -> "SimpleImageExifData":
+    exifimg = get_exif_lazy(imgpath, chunksize=chunksize)
+    return SimpleImageExifData(
+        raw_exif=exifimg,
+        timestamp=get_a7rv_image_timestamp(exifimg),
+        orientation=exifimg.orientation,
+        iso=exifimg["photographic_sensitivity"],
+        aperture=exifimg["f_number"],
+        exposure_time=exifimg["exposure_time"],
+    )
