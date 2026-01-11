@@ -14,8 +14,9 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from yolov9.models.yolo import Model  # Need this here to not break imports elsewhere ... weird
 
-from common import Annotation, Detection, InferredImage
-from .visualizer import ThreadedVisualizer
+from common import Detection, InferredImage
+from visualizer import ThreadedVisualizer
+
 
 class AnnotatedDataset(Dataset):
     def __init__(self, paths: List[Tuple[Path, Path]], annotations: Optional[List[Any]] = None):
@@ -36,7 +37,6 @@ class AnnotatedDataset(Dataset):
         img.load()
         img = img.convert("RGB")
         return dict(pil_img=img, img_path=img_path, vis_path=vis_path, annotations=annotations)
-
 
 
 def predict(

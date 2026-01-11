@@ -1,6 +1,19 @@
 
 ## Lab notes
 
+- 2026-01-12 - ran our new model on the test data:
+  ```
+  # This model:
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20251024_150305-yolov9-c-dataset-20251017-maui/ lib/yolov9/models/detect/yolov9-c.maui.yaml ./data/ml/annotated/202508-dolphins/all 202508-dolphins-all --device='cuda' --model_confidence_threshold=0.01 --batch_size=32 --coco ./data/ml/annotated/202508-dolphins/all.json
+
+  # Old models:
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240912_052208-yolov9-s-20240815-maui lib/yolov9/models/detect/yolov9-c.maui.yaml ./data/ml/annotated/202508-dolphins/all 202508-dolphins-all --device='cuda' --model_confidence_threshold=0.01 --batch_size=32 --coco ./data/ml/annotated/202508-dolphins/all.json
+
+  PYTHONPATH=".:lib:lib/sahi" python scripts/infer_images.py data/ml/trains/20240815_060150-yolov9-c-20240815-maui lib/yolov9/models/detect/yolov9-c.maui.yaml ./data/ml/annotated/202508-dolphins/all 202508-dolphins-all --device='cuda' --model_confidence_threshold=0.01 --batch_size=32 --coco ./data/ml/annotated/202508-dolphins/all.json
+  ```
+  Conclusion: generally looks pretty good, much fewer false positives, missed a few tricky ones the old model got at Cloudy Bay.
+  -
+
 - 2025-10-24 - fixed below and created dataset. Triggered a train:
   ```
   cp /mnt/mauidata/ml/training-datasets/20251017-maui /mnt/tmp/
