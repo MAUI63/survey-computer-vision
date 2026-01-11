@@ -16,6 +16,8 @@ from PIL import Image, ImageDraw
 from tqdm import tqdm
 
 import constants
+from common import Annotation
+from visualizer import ThreadedVisualizer
 
 sns.set_theme(style="ticks")
 
@@ -91,7 +93,6 @@ def get_crop(
     input_crop_scaler: Callable,
     annotation_overlap_ratio_to_keep: float,
     out_imgdir: Path,
-    review_dir: Optional[Path],
 ):
     imgpath = imgdir / target.img["file_name"]
     imgh = target.img["height"]
@@ -205,19 +206,6 @@ def get_crop(
     # Save the crop:
     out_imgdir.mkdir(parents=True, exist_ok=True)
     crop.save(out_imgdir / crop_name, quality=95)
-    if review_dir is not None:
-        out = crop.copy()
-        if this_annotations:
-            draw = ImageDraw.Draw(out)
-            for a in this_annotations:
-                b = a["bbox"]
-                ax0 = int(b[0])
-                ay0 = int(b[1])
-                ax1 = ax0 + int(b[2])
-                ay1 = ay0 + int(b[3])
-                draw.rectangle((ax0, ay0, ax1, ay1), outline=(0, 255, 0), width=2)
-        review_dir.mkdir(parents=True, exist_ok=True)
-        out.save(review_dir / crop_name, quality=80)
 
     return new_img, this_annotations
 
@@ -234,7 +222,6 @@ def get_crops(
     input_crop_scaler: Callable,
     annotation_overlap_ratio_to_keep: float,
     out_imgdir: Path,
-    review_dir: Optional[Path],
     num_workers: int,
 ):
     # Say we want crops of 100x100 and the src_gsd is 1cm/pixel while the target_gsd is 5cm/pixel. In this case, that
@@ -270,10 +257,11 @@ def get_crops(
                     input_crop_scaler=input_crop_scaler,
                     annotation_overlap_ratio_to_keep=annotation_overlap_ratio_to_keep,
                     out_imgdir=out_imgdir,
-                    review_dir=review_dir,
                 )
             )
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="getting crops"):
+        for future in tqdm(
+            concurrent.futures.as_completed(futures), total=len(futures), desc=f"getting crops for {source_name}"
+        ):
             img, anns = future.result()
             new_imgs.append(img)
             for ann in anns:
@@ -296,8 +284,22 @@ def get_input_crop_scaler(spec):
     return f
 
 
-def process_source(odir, review_dir, name, spec, source, split, headn, num_workers):
+def process_source(odir, name, spec, source, split, headn, num_workers):
     logger.info(f"Processing {source}")
+
+    # Figure out the split name to use:
+    split_name = split
+    if split == "train":
+        if "train_name" in source:
+            split_name = source["train_name"]
+    elif split == "test":
+        if "test_name" in source:
+            split_name = source["test_name"]
+    else:
+        raise RuntimeError(f"Unknown split {split}")
+
+    logger.info(f"Using split name '{split_name}' for split '{split}'")
+
     # Resize
     fpath = constants.DATA_DIR / "ml" / "annotated" / source["source"]
     with open(fpath / "meta.json") as f:
@@ -311,12 +313,13 @@ def process_source(odir, review_dir, name, spec, source, split, headn, num_worke
         n_pos = int(n_pos * spec["test_ratio"])
         n_neg = int(n_neg * spec["test_ratio"])
     crop_targets, categories = get_crop_targets(
-        fpath, split, source["target_labels"], n_positive=n_pos, n_negative=n_neg, headn=headn
+        fpath, split_name, source["target_labels"], n_positive=n_pos, n_negative=n_neg, headn=headn
     )
+
     # Now get the crops (including handling sizes etc.)
     imgs, anns = get_crops(
         source_name=name,
-        imgdir=fpath / split,
+        imgdir=fpath / split_name,
         targets=crop_targets,
         croph=crop_spec["h"],
         cropw=crop_spec["w"],
@@ -326,12 +329,11 @@ def process_source(odir, review_dir, name, spec, source, split, headn, num_worke
         input_crop_scaler=get_input_crop_scaler(crop_spec["scale_variation"]),
         annotation_overlap_ratio_to_keep=crop_spec["min_area_ratio"],
         out_imgdir=odir / split,
-        review_dir=review_dir / split,
         num_workers=num_workers,
     )
 
     # And rename labels. If the rename is null, we remove the annotation. NB, this is why we do this after all the
-    # filtering - sometimes we want to filter to e.g. false positives, which happens above, but here they get
+    # filtering - sometimes we want to crop to e.g. false positives, which happens above, but here they get
     # removed:
     if "rename" not in source:
         new_categories = categories
@@ -339,8 +341,10 @@ def process_source(odir, review_dir, name, spec, source, split, headn, num_worke
         new_categories = []
         for c in categories:
             new_name = source["rename"][c["name"]]
+            logger.info(f"Renaming category {c['name']} to {new_name}")
             if new_name is None:
                 # Remove all these annotations:
+                logger.info(f"Renamed to `None`, removing all annotations of category {c['name']}")
                 anns = [d for d in anns if d["category_id"] != c["id"]]
             else:
                 new_categories.append(dict(id=c["id"], name=new_name))
@@ -413,6 +417,7 @@ def to_yolo(coco, img_dir: Path, oimgdir: Path, olabeldir: Path):
 
 
 def profile_box_sizes(coco, cropw, croph, opath):
+    logger.info("Profiling box sizes")
     widths = []
     heights = []
     for a in coco["annotations"]:
@@ -444,6 +449,7 @@ def profile_box_sizes(coco, cropw, croph, opath):
 
 
 def profile_box_locations(coco, cropw, croph, opath):
+    logger.info("Profiling box locations")
     x = []
     y = []
     for a in coco["annotations"]:
@@ -487,11 +493,14 @@ def main(args):
             shutil.rmtree(d)
         d.mkdir(parents=True, exist_ok=True)
     for split in ("train", "test"):
+        visualizers = [
+            ThreadedVisualizer(title_prefix=f"Dataset {odir.name} [{split}]") for i in range(args.num_visualizers)
+        ]
         cocos = []
         for idx, source in enumerate(spec["sources"]):
             name = source["name"] if "name" in source else source["source"]
             name = f"{idx}_{name}"
-            cocos.append(process_source(cocodir, review_dir, name, spec, source, split, args.headn, args.num_workers))
+            cocos.append(process_source(cocodir, name, spec, source, split, args.headn, args.num_workers))
         # OK, merge things
         coco = merge_cocos(cocos)
         with open(cocodir / f"{split}.json", "w") as f:
@@ -506,6 +515,28 @@ def main(args):
         profile_box_locations(coco, cropw, croph, odir / f"box_centers_{split}.png")
         profile_box_sizes(coco, cropw, croph, odir / f"box_sizes_{split}.png")
 
+        # Now process review images
+        categories = {c["id"]: c["name"] for c in coco["categories"]}
+        for img_idx, img in enumerate(tqdm(coco["images"], desc="reviewing images", total=len(coco["images"]))):
+            imgpath = cocodir / split / img["file_name"]
+            # def visualize(self, image_as_pil, img_path, out_path, detections, annotations):
+            coco_annotations = [a for a in coco["annotations"] if a["image_id"] == img["id"]]
+            annotations = []
+            for a in coco_annotations:
+                x, y, w, h = a["bbox"]
+                category_id = a["category_id"]
+                annotations.append(Annotation(x0=x, y0=y, x1=x + w, y1=y + h, label=categories[category_id]))
+            visualizers[img_idx % args.num_visualizers].visualize(
+                Image.open(imgpath), imgpath, review_dir / split / f"{imgpath.stem}.jpg", [], annotations
+            )
+
+        # Wait until they're done:
+        for idx, v in enumerate(visualizers):
+            logger.info(f"Waiting for visualizer {idx} to finish...")
+            v.wait_until_done()
+
+        logger.info(f"Finished processing split {split}!")
+
 
 if __name__ == "__main__":
     import argparse
@@ -514,6 +545,7 @@ if __name__ == "__main__":
     parser.add_argument("dataspec")
     parser.add_argument("--headn", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=32)
+    parser.add_argument("--num-visualizers", type=int, default=4)
     args = parser.parse_args()
 
     logger.add(Path(args.dataspec).parent / "log.txt", level="INFO", mode="w")

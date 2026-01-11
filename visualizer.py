@@ -1,11 +1,14 @@
-from loguru import logger
-import threading
 import queue
+import threading
+import time
+from pathlib import Path
+from typing import List
+
 import cv2
 import numpy as np
-from typing import List
+from loguru import logger
+
 from common import Annotation, Detection
-from pathlib import Path
 
 
 class ThreadedVisualizer:
@@ -194,3 +197,7 @@ class ThreadedVisualizer:
     def stop(self, timeout=5):
         self._stopped = True
         self._t.join(timeout=timeout)
+
+    def wait_until_done(self, poll_interval=0.1):
+        while not self.empty():
+            time.sleep(poll_interval)

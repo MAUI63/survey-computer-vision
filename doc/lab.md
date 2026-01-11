@@ -1,6 +1,16 @@
 
 ## Lab notes
 
+- 2025-10-24 - fixed below and created dataset. Triggered a train:
+  ```
+  cp /mnt/mauidata/ml/training-datasets/20251017-maui /mnt/tmp/
+  # Edit /mnt/tmp/20251017-maui/dataset.yml to point to tmp dir
+  nohup docker run --rm --runtime=nvidia --gpus=all --shm-size=80gb --network=host --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /home/ubuntu/cv:/workspaces/cv -v /mnt/mauidata:/workspaces/cv/data -v /mnt/tmp:/workspaces/cv/.tmp -w /workspaces/cv/lib/yolov9 --user=1001 cv python train_dual.py --workers 16 --batch 16 --device 0 --data /workspaces/cv/.tmp/20251017-maui/dataset.yml --img 640 --cfg models/detect/yolov9-c.yaml --weights '' --project /workspaces/cv/data/ml/trains/ --name $(date +%Y%m%d_%H%M%S)-yolov9-c-dataset-20251017-maui --hyp hyps/hyp.dolphins.yaml --min-items 0 --epochs 50 --close-mosaic 15
+  ```
+- 2025-10-17 - attempted to created corresponding dataset with all the latest maui and more false positives:
+  ```
+  python scripts/slice_dataset.py data/ml/training-datasets/20251017-maui/meta.yaml --num-workers=16
+  ```
 - 2025-10-15 - created 202508-dolphins dataset. Tidied up code and merged etc.
 - 2025/08 - ran all SD cards from winter survey as below:
 
