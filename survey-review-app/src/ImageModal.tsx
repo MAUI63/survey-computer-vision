@@ -7,12 +7,18 @@ interface ImageModalProps {
     title: string;
     detections: any[] | undefined;
     rotate180: boolean;
+    iso?: number;
+    aperture?: number;
+    shutterSpeed?: number;
+    agl?: number;
     onClose: () => void;
     onPrev: () => void;
     onNext: () => void;
+    onLeftCamera: () => void;
+    onRightCamera: () => void;
 }
 
-export function ImageModal({ open, imageUrl, detections, onClose, onPrev, onNext, rotate180, title }: ImageModalProps) {
+export function ImageModal({ open, imageUrl, detections, onClose, onPrev, onNext, onLeftCamera, onRightCamera, rotate180, title, iso, aperture, shutterSpeed, agl }: ImageModalProps) {
     const [loaded, setLoaded] = React.useState(false);
     const [showDetections, setShowDetections] = React.useState(true);
     React.useEffect(() => {
@@ -51,6 +57,28 @@ export function ImageModal({ open, imageUrl, detections, onClose, onPrev, onNext
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
             }}>{title}</div>
+
+            {/* Camera settings display */}
+            {(iso || aperture || shutterSpeed || agl) && (
+                <div style={{
+                    position: 'absolute',
+                    top: 80,
+                    left: 20,
+                    color: '#fff',
+                    background: 'rgba(0,0,0,0.7)',
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    fontSize: 14,
+                    zIndex: 10001,
+                    fontFamily: 'monospace',
+                }}>
+                    {iso && <div>ISO: {iso}</div>}
+                    {aperture && <div>Aperture: f/{aperture}</div>}
+                    {shutterSpeed && <div>Shutter: 1/{Math.round(1 / shutterSpeed)}</div>}
+                    {agl && <div>AGL: {agl.toFixed(0)}m</div>}
+
+                </div>
+            )}
             <button style={{ position: 'absolute', top: 20, right: 20, zIndex: 10000 }} onClick={onClose}>Close</button>
             {/* Show/hide detections button at top left */}
             <button style={{ position: 'absolute', top: 20, left: 20, zIndex: 10000 }} onClick={() => setShowDetections(v => !v)}>
@@ -60,6 +88,37 @@ export function ImageModal({ open, imageUrl, detections, onClose, onPrev, onNext
             <button style={{ position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 10000 }} onClick={onNext}>{'⬆️'}</button>
             {/* Prev button at bottom center */}
             <button style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 10000 }} onClick={onPrev}>{'⬇️'}</button>
+
+            {/* Camera navigation buttons */}
+            <button style={{
+                position: 'absolute',
+                left: 20,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10000,
+                fontSize: '24px',
+                padding: '10px 15px',
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer'
+            }} onClick={onLeftCamera}>{'◀️'}</button>
+
+            <button style={{
+                position: 'absolute',
+                right: 20,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10000,
+                fontSize: '24px',
+                padding: '10px 15px',
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer'
+            }} onClick={onRightCamera}>{'▶️'}</button>
             {/* Loader spinner outside zoom/pan */}
             {!loaded && (
                 <div style={{
@@ -102,7 +161,7 @@ export function ImageModal({ open, imageUrl, detections, onClose, onPrev, onNext
                 <TransformWrapper
                     initialScale={.7}
                     minScale={0.7}
-                    maxScale={20}
+                    maxScale={100}
                     wheel={{ smoothStep: 0.01 }}
                     doubleClick={{ disabled: false }}
                     panning={{ velocityDisabled: true }}
@@ -133,7 +192,7 @@ function ImageWithOverlay({ src, detections, setLoaded, rotate180 }: { src: stri
         }}>
             <img
                 src={src}
-                alt="modal"
+                agl="modal"
                 onLoad={() => { setLoaded(true); setLocalLoaded(true); }}
                 style={{
                     maxWidth: '100%',
@@ -143,7 +202,9 @@ function ImageWithOverlay({ src, detections, setLoaded, rotate180 }: { src: stri
                     margin: '0 auto',
                     position: 'relative',
                     visibility: loaded ? 'visible' : 'hidden',
-                }}
+                    // Disable image smoothing for raw pixel rendering
+                    imageRendering: 'pixelated',
+                } as React.CSSProperties}
             />
             {/* Example bounding box overlay at xywh=[0.5,0.5,0.01,0.01] */}
             {loaded && detections && detections.map((det, i) => (
